@@ -3,6 +3,7 @@
  */
 
 var net = require('net');
+var debug = require('debug');
 
 function Session(config) {
     if (!this instanceof Session) return new Session(config);
@@ -30,6 +31,19 @@ Session.prototype.connect = function(config) {
                     // Check for Login: or Username: and send the username
                     // Check for Password: and send password
                     // Check for XML and terminate the authentication
+                    if (me.buffer.match(/XML\>\s*/)) {
+                        me.authenticated = true;
+                        me.buffer = ""; // Should I do that?
+                    } else {
+                        if (me.buffer.match(/(Username|Login)\:\s*/i)) {
+                            me.client.write(config.username+'\n');
+                            me.buffer = "";
+                        }
+                        if (me.buffer.match(/Password\:\s*/i)) {
+                            me.client.write(config.password+'\n');
+                            me.buffer = "";
+                        }
+                    }
                 }
             });
         }
