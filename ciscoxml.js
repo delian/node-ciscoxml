@@ -6,13 +6,15 @@ var net = require('net');
 var debug = require('debug');
 
 function Session(config) {
-    if (!this instanceof Session) return new Session(config);
+    if (!(this instanceof Session)) return new Session(config);
 
     this.config = config;
     this.client = new net.Socket();
     this.connected = false;
     this.authenticated = false;
     this.buffer = "";
+
+    return this;
 }
 
 Session.prototype.connect = function(config) {
@@ -36,11 +38,11 @@ Session.prototype.connect = function(config) {
                         me.buffer = ""; // Should I do that?
                     } else {
                         if (me.buffer.match(/(Username|Login)\:\s*/i)) {
-                            me.client.write(config.username+'\n');
+                            me.client.write((config.username || this.config.username)+'\n');
                             me.buffer = "";
                         }
                         if (me.buffer.match(/Password\:\s*/i)) {
-                            me.client.write(config.password+'\n');
+                            me.client.write((config.password || this.config.password)+'\n');
                             me.buffer = "";
                         }
                     }
