@@ -9,6 +9,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "debug": "^2.1.2"
+    "clone": "^1.0.1",
+    "debug": "^2.1.2",
+    "util": "^0.10.3"
   }
 }
