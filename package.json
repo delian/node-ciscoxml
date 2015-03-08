@@ -1,0 +1,14 @@
+{
+  "name": "node-ciscoxml",
+  "version": "0.0.1",
+  "private": true,
+  "author": "Delian Delchev <delian.delchev@gmail.com> (http://deliantech.blogspot.com/)",
+  "license": "GPLv2",
+  "main": "ciscoxml.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "debug": "~2.1.1"
+  }
+}
