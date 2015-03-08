@@ -5,7 +5,7 @@
 var net = require('net');
 var debug = require('debug')('ciscoxml');
 var util = require('util');
-var clone = require('clone');
+//var clone = require('clone');
 
 function Session(config) {
     if (!(this instanceof Session)) return new Session(config);
@@ -53,6 +53,7 @@ Session.prototype.connect = function(config,callback) {
     me.client.on('error',function(err) {
         debug('Connect error %s',err);
         if (typeof cb == 'function') cb(err);
+        me.errorRawTask(err);
     });
     this.client.connect(
         me.config.port,
@@ -75,7 +76,8 @@ Session.prototype.connect = function(config,callback) {
                         me.buffer = "";
                         debug('AUTH: ---- Authentication successful!');
                         me.nextRawTask(); // Lets add the next task if it is waiting
-                        if (typeof cb == 'function') return cb(null,me);
+                        if (typeof cb == 'function') cb(null,me);
+                        cb = null; // Avoid double call of the callback
                         return; // Successful completion
                     } else {
                         if (me.buffer.match(me.config.userPromptRegex)) {
@@ -103,10 +105,7 @@ Session.prototype.connect = function(config,callback) {
                 // We are authenticated and we receive data. Lets filter <Response ..>...</Response> and return it back to a CB queue
                 if (me.buffer.match(/\<\/Response\>/i)) {
                     debug('RESPONSE: <<< %s',me.buffer);
-                    if (me.rawQueueBlocked) {
-                        if (typeof me.rawQueue[0].cb == 'function') me.rawQueue[0].cb(me.buffer);
-                        me.popNextTask();
-                    }
+                    me.popNextTask(me.buffer);
                     me.buffer = me.buffer.replace(/^[\s\S]*<\/Response\>/i,''); // Remove it from the buffer
                     //debug('TRIM: buffer left to be %s', me.buffer);
                 }
@@ -121,6 +120,7 @@ Session.prototype.connect = function(config,callback) {
  */
 Session.prototype.disconnect = function(cb) {
     this.client.end();
+    debug('SESSION disconnected');
     if (typeof cb == 'function') cb();
 };
 
@@ -143,17 +143,44 @@ Session.prototype.nextRawTask = function() {
 /**
  * Remove the top task blocked task
  */
-Session.prototype.popNextTask = function() {
+Session.prototype.popNextTask = function(data) {
     if (!this.rawQueueBlocked) return;
+    if (typeof this.rawQueue[0].cb == 'function') this.rawQueue[0].cb(null,data);
     this.rawQueue.shift();
     this.rawQueueBlocked = false;
     this.nextRawTask();
 };
 
+/**
+ * Sends raw data and expects callback
+ * @param data
+ * @param cb
+ */
 Session.prototype.sendRaw = function(data,cb) {
     debug('QUEUE: New task has been add with %s',data);
     this.rawQueue.push({ data: data, cb: cb });
     this.nextRawTask();
+};
+
+/**
+ * Discard all of the tasks in the raw queue
+ */
+Session.prototype.discardRawQueue = function() {
+    if (this.rawQueue.length>0) debug('DISCARD %d raw tasks!',this.rawQueue.length);
+    this.rawQueue = [];
+    this.rawQueueBlocked = false;
+};
+
+/**
+ * Executes error to all waiting tasks in the raw queue
+ * @param err
+ */
+Session.prototype.errorRawTask = function(err) {
+    if (this.rawQueue.length>0) debug('Notify with error %d raw tasks!',this.rawQueue.length);
+    this.rawQueue.forEach(function(q) {
+        if (typeof q.cb == 'function') q.cb(err);
+    });
+    this.discardRawQueue();
 };
 
 module.exports = Session;
