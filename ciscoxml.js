@@ -36,6 +36,7 @@ function Session(config) {
     if (typeof config == 'object') util._extend(me.config,config);
     me.client = new net.Socket();
     me.connected = false;
+    me.connecting = false;
     me.authenticated = false;
     me.buffer = "";
     me.autoDisconnectId = null;
@@ -82,12 +83,15 @@ Session.prototype.connect = function(config,callback) {
         if (typeof cb == 'function') cb(err);
         me.errorRawTask(err);
         if (me.config.connectErrCnt>0) me.config.connectErrCnt--;
+        me.connecting = false;
     });
     if (me.config.connectErrCnt<=0) {
         debug('ERROR: We have no more right to retry!');
         if (typeof cb == 'function') return cb(new Error('No more connect retry!'));
         return;
     }
+    if (me.connecting) return; // Connection is ongoing
+    me.connecting = true;
     this.client.setNoDelay(this.config.noDelay);
     this.client.setKeepAlive(this.config.keepAlive);
     this.client.connect(
@@ -97,6 +101,7 @@ Session.prototype.connect = function(config,callback) {
             debug('Connected to %s:%s',me.config.host,me.config.port);
             me.connected = true;
             me.authenticated = false;
+            me.connecting = false;
             me.client.on('data',function(data) {
                 // We receive data
                 me.buffer += data;
