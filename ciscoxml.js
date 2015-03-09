@@ -29,7 +29,9 @@ function Session(config) {
         password: 'guest',
         connectErrCnt: 3,
         autoConnect: true,
-        autoDisconnect: 60000
+        autoDisconnect: 60000,
+        keepAlive: 30000,
+        noDelay: true
     };
     if (typeof config == 'object') util._extend(me.config,config);
     me.client = new net.Socket();
@@ -86,6 +88,8 @@ Session.prototype.connect = function(config,callback) {
         if (typeof cb == 'function') return cb(new Error('No more connect retry!'));
         return;
     }
+    this.client.setNoDelay(this.config.noDelay);
+    this.client.setKeepAlive(this.config.keepAlive);
     this.client.connect(
         me.config.port,
         me.config.host,
@@ -236,7 +240,7 @@ Session.prototype.errorRawTask = function(err) {
 
 // ------ XML ------
 
-Session.prototype.sendRawXml = function(data,cb) {
+Session.prototype.sendRawObj = function(data,cb) {
     if (typeof data != 'object') {
         debug('ERROR: We received request not in the right format! %s',data);
         return cb(new Error('Incorrect data'));
@@ -251,7 +255,7 @@ Session.prototype.sendRawXml = function(data,cb) {
 // ------ Global Commands ------
 
 Session.prototype.rootGetDataSpaceInfo = function(cb) {
-    this.sendRawXml({ GetDataSpaceInfo: '' },cb);
+    this.sendRawObj({ GetDataSpaceInfo: '' },cb);
 };
 
 module.exports = Session;
