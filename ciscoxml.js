@@ -28,13 +28,15 @@ function Session(config) {
         username: 'guest',
         password: 'guest',
         connectErrCnt: 3,
-        autoConnect: true
+        autoConnect: true,
+        autoDisconnect: 60000
     };
     if (typeof config == 'object') util._extend(me.config,config);
     me.client = new net.Socket();
     me.connected = false;
     me.authenticated = false;
     me.buffer = "";
+    me.autoDisconnectId = null;
     me.rawQueue = []; // This queue contains the tasks we like to execute - data + callback for response
     me.rawQueueBlocked = false;
 
@@ -74,10 +76,16 @@ Session.prototype.connect = function(config,callback) {
     if (typeof config == 'function') cb = config;
     debug('Trying to connect to %s:%s',me.config.host, me.config.port);
     me.client.on('error',function(err) {
-        debug('Connect error %s',err);
+        debug('ERROR: Connect error %s',err);
         if (typeof cb == 'function') cb(err);
         me.errorRawTask(err);
+        if (me.config.connectErrCnt>0) me.config.connectErrCnt--;
     });
+    if (me.config.connectErrCnt<=0) {
+        debug('ERROR: We have no more right to retry!');
+        if (typeof cb == 'function') return cb(new Error('No more connect retry!'));
+        return;
+    }
     this.client.connect(
         me.config.port,
         me.config.host,
@@ -142,6 +150,7 @@ Session.prototype.connect = function(config,callback) {
  * @param cb
  */
 Session.prototype.disconnect = function(cb) {
+    if (this.config.connectErrCnt>0) this.config.connectErrCnt++; // to avoid normal decrease of the counter
     this.client.end();
     debug('SESSION disconnected');
     if (typeof cb == 'function') cb();
@@ -158,7 +167,18 @@ Session.prototype.nextRawTask = function() {
         return me.connect(); // Connect has automatic nextRawTask execution
     }
     if (me.rawQueueBlocked) return;
-    if (me.rawQueue.length == 0) return;
+    if (me.rawQueue.length == 0) {
+        // Execute autoDisconnect
+        if (me.config.autoDisconnect && me.config.autoDisconnect>0) {
+            if (me.autoDisconnectId) clearTimeout(me.autoDisconnectId);
+            me.autoDisconnectId = setTimeout(function() {
+                debug('WARN: Timeout expired with no new tasks. Autodisconnect');
+                me.disconnect();
+            },me.config.autoDisconnect);
+            return;
+        }
+    }
+    if (me.autoDisconnectId) clearTimeout(me.autoDisconnectId);
     me.rawQueueBlocked = true;
     var data = me.rawQueue[0].data;
     if (!data.match(/\r\n$/)) data += '\r\n';
@@ -213,6 +233,11 @@ Session.prototype.errorRawTask = function(err) {
 // ------ XML ------
 
 Session.prototype.sendRawXml = function(data,cb) {
+    if (typeof data != 'object') {
+        debug('ERROR: We received request not in the right format! %s',data);
+        return cb(new Error('Incorrect data'));
+    }
+    if (typeof data['$'] == 'undefined') data['$'] = { MajorVersion: '1', MinorVersion: '0' };
     return this.sendRaw(xmlBuilder.buildObject(data),function (err,data) {
         if (err) return cb(err,data);
         xmlParser(data,cb); // Now we could inherit the error from the XML parsing
