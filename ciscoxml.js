@@ -205,6 +205,10 @@ Session.prototype.popNextTask = function(data) {
  */
 Session.prototype.sendRaw = function(data,cb) {
     debug('QUEUE: New task has been add with %s',data);
+    if ((!(me.connected && me.authenticated))&&(!me.config.autoConnect)) {
+        debug('ERROR: new task has been dispatched, but we are not yet connected!');
+        return cb(new Error('Not connected'));
+    }
     this.rawQueue.push({ data: data, cb: cb });
     this.nextRawTask();
 };
