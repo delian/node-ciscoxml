@@ -5,7 +5,13 @@
 var net = require('net');
 var debug = require('debug')('ciscoxml');
 var util = require('util');
+var xml2js = require('xml2js');
 //var clone = require('clone');
+
+var xmlBuilder = new xml2js.Builder({ rootName: 'Request' });
+var xmlParser = xml2js.parseString;
+
+// TODO: Error handling and state cleaning when the TCP session is disconnected
 
 function Session(config) {
     if (!(this instanceof Session)) return new Session(config);
@@ -20,7 +26,9 @@ function Session(config) {
         xmlPromptRegex: /XML\>\s*/,
         authFailRegex: /Authentication Failed/i,
         username: 'guest',
-        password: 'guest'
+        password: 'guest',
+        connectErrCnt: 3,
+        autoConnect: true
     };
     if (typeof config == 'object') util._extend(me.config,config);
     me.client = new net.Socket();
@@ -34,6 +42,21 @@ function Session(config) {
         debug('Session ended');
         me.connected = false;
         me.authenticated = false;
+
+        // Distribute errors if we have tasks waiting
+        if (me.rawQueueBlocked) {
+            debug('ERROR: Remote side disconnected, but we still wait for response');
+            return me.errorRawTask(new Error('Remote side disconnected'));
+        }
+
+        if (me.rawQueue.length>0) { // This should never happen
+            debug('WARN: Remote side disconnected, but we have tasks waiting');
+            if (me.config.autoConnect) {
+                debug('WARN: autoConnect is true. Reconnect');
+                me.connect();
+            }
+        }
+
     });
 
     return this;
@@ -128,14 +151,18 @@ Session.prototype.disconnect = function(cb) {
  * Execute the next task if we are not waiting for response
  */
 Session.prototype.nextRawTask = function() {
-    if (!this.connected) return;
-    if (!this.authenticated) return;
-    if (this.rawQueueBlocked) return;
-    if (this.rawQueue.length == 0) return;
-    this.rawQueueBlocked = true;
-    var data = this.rawQueue[0].data;
+    var me = this;
+    if (!(me.connected && me.authenticated)) {
+        if (!me.config.autoConnect) return;
+        debug('WARN: Next task is dispatched, but we are not yet connected. Connect...');
+        return me.connect(); // Connect has automatic nextRawTask execution
+    }
+    if (me.rawQueueBlocked) return;
+    if (me.rawQueue.length == 0) return;
+    me.rawQueueBlocked = true;
+    var data = me.rawQueue[0].data;
     if (!data.match(/\r\n$/)) data += '\r\n';
-    this.client.write(data,function() {
+    me.client.write(data,function() {
         debug('QUEUE: >>> data sent to device %s',data);
     });
 };
@@ -181,6 +208,21 @@ Session.prototype.errorRawTask = function(err) {
         if (typeof q.cb == 'function') q.cb(err);
     });
     this.discardRawQueue();
+};
+
+// ------ XML ------
+
+Session.prototype.sendRawXml = function(data,cb) {
+    return this.sendRaw(xmlBuilder.buildObject(data),function (err,data) {
+        if (err) return cb(err,data);
+        xmlParser(data,cb); // Now we could inherit the error from the XML parsing
+    });
+};
+
+// ------ Global Commands ------
+
+Session.prototype.rootGetDataSpaceInfo = function(cb) {
+    this.sendRawXml({ GetDataSpaceInfo: '' },cb);
 };
 
 module.exports = Session;
