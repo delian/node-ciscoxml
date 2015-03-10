@@ -6,6 +6,7 @@ var net = require('net');
 var debug = require('debug')('ciscoxml');
 var util = require('util');
 var xml2js = require('xml2js');
+var tls = require('tls');
 //var clone = require('clone');
 
 var xmlBuilder = new xml2js.Builder({ rootName: 'Request' });
@@ -29,12 +30,13 @@ function Session(config) {
         password: 'guest',
         connectErrCnt: 3,
         autoConnect: true,
+        ssl: false,  // If present and it is an object, we assume it will contain the SSL options of the TLS module
         autoDisconnect: 60000,
         keepAlive: 30000,
         noDelay: true
     };
     if (typeof config == 'object') util._extend(me.config,config);
-    me.client = new net.Socket();
+    me.client = false;
     me.connected = false;
     me.connecting = false;
     me.authenticated = false;
@@ -43,29 +45,31 @@ function Session(config) {
     me.rawQueue = []; // This queue contains the tasks we like to execute - data + callback for response
     me.rawQueueBlocked = false;
 
-    me.client.on('end',function() {
-        debug('Session ended');
-        me.connected = false;
-        me.authenticated = false;
-
-        // Distribute errors if we have tasks waiting
-        if (me.rawQueueBlocked) {
-            debug('ERROR: Remote side disconnected, but we still wait for response');
-            return me.errorRawTask(new Error('Remote side disconnected'));
-        }
-
-        if (me.rawQueue.length>0) { // This should never happen
-            debug('WARN: Remote side disconnected, but we have tasks waiting');
-            if (me.config.autoConnect) {
-                debug('WARN: autoConnect is true. Reconnect');
-                me.connect();
-            }
-        }
-
-    });
-
     return this;
 }
+
+/**
+ * This is a function that should be called when a session is terminated
+ */
+Session.prototype.onEnd = function() {
+    debug('Session ended');
+    me.connected = false;
+    me.authenticated = false;
+
+    // Distribute errors if we have tasks waiting
+    if (me.rawQueueBlocked) {
+        debug('ERROR: Remote side disconnected, but we still wait for response');
+        return me.errorRawTask(new Error('Remote side disconnected'));
+    }
+
+    if (me.rawQueue.length>0) { // This should never happen
+        debug('WARN: Remote side disconnected, but we have tasks waiting');
+        if (me.config.autoConnect) {
+            debug('WARN: autoConnect is true. Reconnect');
+            me.connect();
+        }
+    }
+};
 
 /**
  * Connect to the remote site
@@ -78,6 +82,96 @@ Session.prototype.connect = function(config,callback) {
     if (typeof config == 'object') util._extend(me.config,config);
     if (typeof config == 'function') cb = config;
     debug('Trying to connect to %s:%s',me.config.host, me.config.port);
+
+    if (me.config.connectErrCnt<=0) {
+        debug('ERROR: We have no more right to retry!');
+        if (typeof cb == 'function') return cb(new Error('No more connect retry!'));
+        return;
+    }
+
+    if (me.connecting) return; // Connection is ongoing
+    me.connecting = true;
+
+    function connectProc() {
+        debug('Connected to %s:%s',me.config.host,me.config.port);
+        me.connected = true;
+        me.authenticated = false;
+        me.connecting = false;
+        me.client.on('data',function(data) {
+            // We receive data
+            me.buffer += data;
+            if (!me.authenticated) {
+                // Check for authentication
+                // Check for Login: or Username: and send the username
+                // Check for Password: and send password
+                // Check for XML and terminate the authentication
+                debug('AUTH: >>> %s',me.buffer);
+                if (me.buffer.match(me.config.xmlPromptRegex)) {
+                    me.authenticated = true;
+                    me.buffer = "";
+                    debug('AUTH: ---- Authentication successful!');
+                    me.nextRawTask(); // Lets add the next task if it is waiting
+                    if (typeof cb == 'function') cb(null,me);
+                    cb = null; // Avoid double call of the callback
+                    return; // Successful completion
+                } else {
+                    if (me.buffer.match(me.config.userPromptRegex)) {
+                        me.client.write(me.config.username+'\r\n');
+                        me.buffer = "";
+                        debug('AUTH: <<< %s',me.config.username);
+                    }
+                    if (me.buffer.match(me.config.passPromptRegex)) {
+                        me.client.write(me.config.password+'\r\n');
+                        me.buffer = "";
+                        debug('AUTH: <<< %s',me.config.password);
+                    }
+                    if (me.buffer.match(me.config.authFailRegex)) {
+                        debug('AUTH: !!!! Authentication failed!');
+                        if (typeof cb == 'function') cb(new Error('Authentication Failed'));
+                        return me.client.end(); // Fail
+                    }
+                }
+                return;
+            }
+
+            if (me.buffer.match(me.config.xmlPromptRegex)) {
+                me.buffer = me.buffer.replace(me.config.xmlPromptRegex,'');
+            }
+            // We are authenticated and we receive data. Lets filter <Response ..>...</Response> and return it back to a CB queue
+            if (me.buffer.match(/\<\/Response\>/i)) {
+                debug('RESPONSE: <<< %s',me.buffer);
+                me.popNextTask(me.buffer);
+                me.buffer = me.buffer.replace(/^[\s\S]*<\/Response\>/i,''); // Remove it from the buffer
+                //debug('TRIM: buffer left to be %s', me.buffer);
+            }
+        });
+    }
+
+    if (me.config.ssl) {
+        me.client = tls.connect(
+            me.config.port,
+            me.config.host,
+            typeof me.config.ssl == 'object'?me.config.ssl:{},
+            function() {
+                debug('SSL connected!');
+                connectProc();
+            }
+        );
+        me.client.setNoDelay(this.config.noDelay);
+        me.client.setKeepAlive(this.config.keepAlive);
+    } else {
+        me.client = new net.Socket();
+        me.client.setNoDelay(this.config.noDelay);
+        me.client.setKeepAlive(this.config.keepAlive);
+        me.client.connect(
+            me.config.port,
+            me.config.host,
+            connectProc
+        )
+    }
+    me.client.on('end',function() {
+        me.onEnd();
+    });
     me.client.on('error',function(err) {
         debug('ERROR: Connect error %s',err);
         if (typeof cb == 'function') cb(err);
@@ -85,73 +179,6 @@ Session.prototype.connect = function(config,callback) {
         if (me.config.connectErrCnt>0) me.config.connectErrCnt--;
         me.connecting = false;
     });
-    if (me.config.connectErrCnt<=0) {
-        debug('ERROR: We have no more right to retry!');
-        if (typeof cb == 'function') return cb(new Error('No more connect retry!'));
-        return;
-    }
-    if (me.connecting) return; // Connection is ongoing
-    me.connecting = true;
-    this.client.setNoDelay(this.config.noDelay);
-    this.client.setKeepAlive(this.config.keepAlive);
-    this.client.connect(
-        me.config.port,
-        me.config.host,
-        function() {
-            debug('Connected to %s:%s',me.config.host,me.config.port);
-            me.connected = true;
-            me.authenticated = false;
-            me.connecting = false;
-            me.client.on('data',function(data) {
-                // We receive data
-                me.buffer += data;
-                if (!me.authenticated) {
-                    // Check for authentication
-                    // Check for Login: or Username: and send the username
-                    // Check for Password: and send password
-                    // Check for XML and terminate the authentication
-                    debug('AUTH: >>> %s',me.buffer);
-                    if (me.buffer.match(me.config.xmlPromptRegex)) {
-                        me.authenticated = true;
-                        me.buffer = "";
-                        debug('AUTH: ---- Authentication successful!');
-                        me.nextRawTask(); // Lets add the next task if it is waiting
-                        if (typeof cb == 'function') cb(null,me);
-                        cb = null; // Avoid double call of the callback
-                        return; // Successful completion
-                    } else {
-                        if (me.buffer.match(me.config.userPromptRegex)) {
-                            me.client.write(me.config.username+'\r\n');
-                            me.buffer = "";
-                            debug('AUTH: <<< %s',me.config.username);
-                        }
-                        if (me.buffer.match(me.config.passPromptRegex)) {
-                            me.client.write(me.config.password+'\r\n');
-                            me.buffer = "";
-                            debug('AUTH: <<< %s',me.config.password);
-                        }
-                        if (me.buffer.match(me.config.authFailRegex)) {
-                            debug('AUTH: !!!! Authentication failed!');
-                            if (typeof cb == 'function') cb(new Error('Authentication Failed'));
-                            return me.client.end(); // Fail
-                        }
-                    }
-                    return;
-                }
-
-                if (me.buffer.match(me.config.xmlPromptRegex)) {
-                    me.buffer = me.buffer.replace(me.config.xmlPromptRegex,'');
-                }
-                // We are authenticated and we receive data. Lets filter <Response ..>...</Response> and return it back to a CB queue
-                if (me.buffer.match(/\<\/Response\>/i)) {
-                    debug('RESPONSE: <<< %s',me.buffer);
-                    me.popNextTask(me.buffer);
-                    me.buffer = me.buffer.replace(/^[\s\S]*<\/Response\>/i,''); // Remove it from the buffer
-                    //debug('TRIM: buffer left to be %s', me.buffer);
-                }
-            });
-        }
-    );
 };
 
 /**
@@ -212,13 +239,16 @@ Session.prototype.popNextTask = function(data) {
  * @param data
  * @param cb
  */
-Session.prototype.sendRaw = function(data,cb) {
-    debug('QUEUE: New task has been add with %s',data);
+Session.prototype.sendRaw = function(data,cb,priority) {
+    debug('QUEUE: New task has been add with %s and priority %s',data,priority?'first':'last');
     if ((!(this.connected && this.authenticated))&&(!this.config.autoConnect)) {
         debug('ERROR: new task has been dispatched, but we are not yet connected!');
         return cb(new Error('Not connected'));
     }
-    this.rawQueue.push({ data: data, cb: cb });
+    if (priority)
+        this.rawQueue.splice(this.rawQueueBlocked?1:0,0,{ data: data, cb: cb }); // The first possible execution
+    else
+        this.rawQueue.push({ data: data, cb: cb }); // Add it at the end
     this.nextRawTask();
 };
 
@@ -245,7 +275,7 @@ Session.prototype.errorRawTask = function(err) {
 
 // ------ XML ------
 
-Session.prototype.sendRawObj = function(data,cb) {
+Session.prototype.sendRawObj = function(data,cb,priority) {
     if (typeof data != 'object') {
         debug('ERROR: We received request not in the right format! %s',data);
         return cb(new Error('Incorrect data'));
@@ -254,13 +284,110 @@ Session.prototype.sendRawObj = function(data,cb) {
     return this.sendRaw(xmlBuilder.buildObject(data),function (err,data) {
         if (err) return cb(err,data);
         xmlParser(data,cb); // Now we could inherit the error from the XML parsing
+    },priority);
+};
+
+/**
+ * Run GetNext request with IteratorID = id
+ * @param id
+ * @param cb
+ */
+Session.prototype.getNext = function(id,cb) {
+    debug('Execute getNext request with id %s',id);
+    return this.sendRawObj({ GetNext: { $: { IteratorID: id } } },cb,true);
+};
+
+/**
+ * This is the same as sendRawObj but automatically handles getNext is it is present
+ * @param data
+ * @param cb
+ * @returns {*}
+ */
+Session.prototype.sendRequest = function(data,cb) {
+    if (typeof data != 'object') {
+        debug('ERROR: We received request not in the right format! %s',data);
+        return cb(new Error('Incorrect data'));
+    }
+    var me = this;
+    return me.sendRawObj(data,function(err,resp) {
+        if (err) {
+            if (err) return cb(err,resp);
+            // Test for Iterator
+            if (resp && resp.Response && resp.Response['$']) {
+                if (resp.Response['$'].IteratorID) {
+                    me.getNext(resp.Response['$'].IteratorID,function(err,resp2) {
+                        if (err) return cb(err,resp2);
+                        cb(err,util._extend(resp,resp2)); // Merge the data
+                    });
+                }
+            }
+        }
     });
 };
 
 // ------ Global Commands ------
 
 Session.prototype.rootGetDataSpaceInfo = function(cb) {
-    this.sendRawObj({ GetDataSpaceInfo: '' },cb);
+    return this.sendRequest({ GetDataSpaceInfo: '' },cb);
+};
+
+Session.prototype.getConfig = function(cb) {
+    return this.sendRequest({ Get: { Configuration: {} }},cb);
+};
+
+/**
+ * Expands path in a format similar to XPath
+ * For example Hostname = <Hostname/>
+ *
+ * @param path
+ */
+Session.prototype.pathExpand = function (path) {
+
+    function name(a) { // Returns only the name of the property
+        return a.replace(/\(.*\)/g,'').replace(/\{.*\}/g,'').replace(/\=.*$/,'');
+    }
+
+    function attribs(a) { // Expands attributes and property
+        var o = {};
+        return o;
+    }
+
+    var obj = {};
+    var o = obj;
+    var a = path.split('.');
+    for (var a = path.split('.'); a.length; o=o[name(a[0])]=attribs(a.shift()));
+    return obj;
+};
+
+Session.prototype.pathExpandXml = function(path) {
+    var data = this.pathExpand(path);
+    if (typeof data['$'] == 'undefined') data['$'] = { MajorVersion: '1', MinorVersion: '0' };
+    return xmlBuilder.buildObject(data);
+};
+
+Session.prototype.requestByPath = function(path,cb) {
+    return this.sendRequest(this.pathExpand(path),cb);
+};
+
+// ------ Shortcuts -------
+
+Session.prototype.Get = {
+    Config: {
+
+    },
+    Oper: {
+
+    },
+    AdminConfig: {
+
+    },
+    AdminOper: {
+
+    }
+};
+
+Session.prototype.Set = {
+
 };
 
 module.exports = Session;

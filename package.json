@@ -1,6 +1,6 @@
 {
   "name": "node-ciscoxml",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": false,
   "description": "Cisco IOS XR XML API interface",
   "repository": {
@@ -19,7 +19,7 @@
   "dependencies": {
     "clone": "^1.0.1",
     "debug": "^2.1.2",
-    "util": "^0.10.3",
+    "tls": "0.0.1",
     "xml2js": "^0.4.5"
   }
 }

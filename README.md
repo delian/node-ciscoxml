@@ -41,6 +41,9 @@ To load and use the module, you have to use a code similar to this:
 
 **keepAlive** (default 30000) - enabled or disables (value of 0) TCP keepalive for the socket
 
+**ssl** (default false) - if it is set to true or an object, then SSL session will be opened. Node.js TLS module is used for that so if the ssl points to an object, the tls options are taken from it.
+Be careful - enabling SSL does not change the default port from 38751 to 38752. You have to set it explicitly!
+
 Example:
 
     var cxml = require('node-ciscoxml');
@@ -93,6 +96,28 @@ The callback may be the only parameter as well. Example:
         if (!err)
             console.log('Successful connection');
     });
+
+Example with SSL:
+
+    var cxml = require('node-ciscoxml');
+    var fs = require('fs');
+    cxml({
+        host: '10.10.1.1',
+        port: 38752,
+        username: 'xmlapi',
+        password: 'xmlpass',
+        ssl: {
+              // These are necessary only if using the client certificate authentication
+              key: fs.readFileSync('client-key.pem'),
+              cert: fs.readFileSync('client-cert.pem'),
+              // This is necessary only if the server uses the self-signed certificate
+              ca: [ fs.readFileSync('server-cert.pem') ]
+        }
+    }).connect(function(err) {
+        if (!err)
+            console.log('Successful connection');
+    });
+
 
 ### disconnect method
 
@@ -152,3 +177,91 @@ Example:
 
 Equivalent to .sendRawObj for GetDataSpaceInfo command
 
+### getNext
+
+Sends getNext request with a specific id, so we can retrieve the rest of the previous operation if it has been truncated.
+
+**id** - the ID
+**callback** - the callback with the data (in js object format)
+
+Keep in mind next response may be truncated as well, so you have to check for IteratorID all the time.
+
+Example:
+
+    var cxml = require('node-ciscoxml');
+    var c = cxml({
+        host: '10.10.1.1',
+        port: 5000,
+        username: 'xmlapi',
+        password: 'xmlpass'
+    });
+    
+    c.sendRawObj({ Get: { Configuration: {} } },function(err,data) {
+        console.log('Received',err,data);
+        if ((!err) && data && data.Response.$.IteratorID) {
+            return c.getNext(data.Response.$.IteratorID,function(err,nextData) {
+                // .. code to merge data with nextData
+            });
+        }
+        // .. code
+    });
+
+
+### sendRequest method
+
+This method is equivalent to sendRawObj but it can automatically detect the need and resupply GetNext requests so the response is absolutley full.
+Therefore this method should be the preferred method for sending requests that expect very large replies.
+
+Example:
+
+    var cxml = require('node-ciscoxml');
+    var c = cxml({
+        host: '10.10.1.1',
+        port: 5000,
+        username: 'xmlapi',
+        password: 'xmlpass'
+    });
+    
+    c.sendRequest({ GetDataSpaceInfo: '' },function(err,data) {
+        console.log('Received',err,data);
+    });
+
+
+### getConfig method
+
+This method requests the whole configuration of the remote device and return it as object
+
+Example:
+
+    c.getConfig(function(err,config) {
+        console.log(err,config);
+    });
+    
+
+
+## Configure Cisco IOS XR for Xml agent
+
+To configure IOS XR for remote XML configuration you have to:
+
+*Ensure you have **mgbl*** package installed and activated! Without it you will have no **xml agent** commands!
+
+Enable the XML agent with a similar configuration:
+
+    xml agent
+      vrf default
+        ipv4 access-list MANAGEMENT
+      !
+      ipv6 enable
+      session timeout 10
+      iteration on size 100000
+    !
+
+You can enable tty and/or ssl agents as well!
+
+(Keep in mind - full filtering of the XML access has to be done by the **control-plane management-plane** command! The XML interface does not use VTYs!)
+
+You have to ensure you have correctly configured **aaa** as the xml agent uses **default** method for both authentication and authorization and that cannot be changed (at least not for up to IOS XR 5.3)
+
+You have to have both aaa authentication and authorization. If authorization is not set (**aaa authorization default local** or **none**), you may not be able to log in.
+
+The default agent port is 38751 for the default agent and 38752 for SSL.
