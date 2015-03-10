@@ -4,6 +4,12 @@ This is a small module that implements interface to Cisco IOS XR XML Interface.
 
 This module open an maintain TCP session to the router, sends requests and receive responses.
 
+## Installation
+
+To install the module do something like that:
+
+    npm install node-ciscoxml
+
 ## Usage
 
 It is very easy to use this module. See the methods bellow:
