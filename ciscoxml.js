@@ -81,7 +81,7 @@ Session.prototype.connect = function(config,callback) {
     var cb = callback;
     if (typeof config == 'object') util._extend(me.config,config);
     if (typeof config == 'function') cb = config;
-    debug('Trying to connect to %s:%s',me.config.host, me.config.port);
+    debug('Trying to connect to %s:%s, SSL %s',me.config.host, me.config.port, me.config.ssl?'Yes':'No');
 
     if (me.config.connectErrCnt<=0) {
         debug('ERROR: We have no more right to retry!');
@@ -310,18 +310,17 @@ Session.prototype.sendRequest = function(data,cb) {
     }
     var me = this;
     return me.sendRawObj(data,function(err,resp) {
-        if (err) {
-            if (err) return cb(err,resp);
-            // Test for Iterator
-            if (resp && resp.Response && resp.Response['$']) {
-                if (resp.Response['$'].IteratorID) {
-                    me.getNext(resp.Response['$'].IteratorID,function(err,resp2) {
-                        if (err) return cb(err,resp2);
-                        cb(err,util._extend(resp,resp2)); // Merge the data
-                    });
-                }
+        if (err) return cb(err,resp);
+        // Test for Iterator
+        if (resp && resp.Response && resp.Response['$']) {
+            if (resp.Response['$'].IteratorID) {
+                return me.getNext(resp.Response['$'].IteratorID,function(err,resp2) {
+                    if (err) return cb(err,resp2);
+                    cb(err,util._extend(resp,resp2)); // Merge the data
+                },true); // Set it with priority
             }
         }
+        cb(err,resp);
     });
 };
 
@@ -369,25 +368,79 @@ Session.prototype.requestByPath = function(path,cb) {
     return this.sendRequest(this.pathExpand(path),cb);
 };
 
-// ------ Shortcuts -------
-
-Session.prototype.Get = {
-    Config: {
-
-    },
-    Oper: {
-
-    },
-    AdminConfig: {
-
-    },
-    AdminOper: {
-
-    }
+Session.prototype.reqPathPath = function(path,p1,p2) {
+    var cb = null;
+    var filter = null;
+    var me = this;
+    if (p1 instanceof RegExp) filter = p1;
+    if (p2 instanceof RegExp) filter = p2;
+    if (typeof p1 == 'function') cb = p1;
+    if (typeof p2 == 'function') cb = p2;
+    return me.requestByPath(path,function(err,data) {
+        if (err) {
+            if (cb) cb(err,data);
+            return;
+        }
+        //debug('We will execute callback %o',cb);
+        //debug('We will search data with filter %o',filter);
+        if (cb) cb(err,me.obj2path(data,filter))
+    });
 };
 
-Session.prototype.Set = {
+/**
+ * Converts obj to path and could apply a filter
+ * @param obj
+ * @param filter
+ * @returns {Array}
+ */
+Session.prototype.obj2path = function(obj,filter) {
+    var o = [];
 
+    var f = filter instanceof RegExp;
+
+    if (f) debug('OBJ2PATH conversion with filter %o',filter);
+
+    function push(s,v) {
+        if (f) {
+            debug('OBJ2PATH test s:%s v:%s is %s',s,v,filter.test(s) || filter.test(v));
+            if (filter.test(s) || filter.test(v)) return o.push([s,v]);
+            return o;
+        }
+        return o.push([s,v]);
+    }
+
+    function trace(s,p) {
+        if (p instanceof Array) {
+            p.forEach(function(n) {
+                trace(s,n);
+            });
+            return o;
+        }
+
+        if (typeof p == 'object') {
+            if (typeof p['$'] == 'object') {
+                // Lets extract the attributes
+                s = s + '('+Object.keys(p['$']).map(function(n) { return '"'+n+'"="'+p['$'][n]+'"'; }).join(",")+')';
+            }
+            if (p['_']) {
+                return push(s,p['_']);
+            }
+
+            var t = Object.keys(p).filter(function(n) { return n!='$' });
+            if (t.length>0) return t.forEach(function(n) {
+                if (s)
+                    trace(s+'.'+n,p[n]);
+                else
+                    trace(n,p[n]);
+            });
+            return push(s,'');
+        }
+
+        return push(s,p);
+    }
+
+    trace('',obj);
+    return o;
 };
 
 module.exports = Session;

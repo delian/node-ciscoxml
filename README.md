@@ -227,6 +227,52 @@ Example:
     });
 
 
+### requestPath method
+
+This is a method equivalent to sendRequest but instead of an object, the request may be formatted in a simple path string.
+This metod is not very useful for complex requests. But its value is in the ability to simplify very much the simple requests.
+The response is in JavaScript object
+
+Example:
+
+    var cxml = require('node-ciscoxml');
+    var c = cxml({
+        host: '10.10.1.1',
+        port: 5000,
+        username: 'xmlapi',
+        password: 'xmlpass'
+    });
+    
+    c.requestPath('Get.Configuration.Hostname',function(err,data) {
+        console.log('Received',err,data);
+    });
+
+
+### reqPathPath method
+
+This is the same method as requestPath, but the response is not an object, but a path array.
+The method supports optional filter, which has to be a RegExp object and all paths and values will be tested against it
+Only those returning true will be included in the response array.
+
+Example:
+
+    var cxml = require('node-ciscoxml');
+    var c = cxml({
+        host: '10.10.1.1',
+        port: 5000,
+        username: 'xmlapi',
+        password: 'xmlpass'
+    });
+    
+    c.reqPathPath('Get.Configuration.Hostname',/Hostname/,function(err,data) {
+        console.log('Received',data[0]);
+        // The output should be something like
+        // [ 'Response("MajorVersion"="1","MinorVersion"="0").Get.Configuration.Hostname("MajorVersion"="1","MinorVersion"="0")',
+               'asr9k-router' ] 
+    });
+
+This method could be very useful for getting simple responses and configurations.
+
 ### getConfig method
 
 This method requests the whole configuration of the remote device and return it as object
@@ -260,8 +306,16 @@ You can enable tty and/or ssl agents as well!
 
 (Keep in mind - full filtering of the XML access has to be done by the **control-plane management-plane** command! The XML interface does not use VTYs!)
 
-You have to ensure you have correctly configured **aaa** as the xml agent uses **default** method for both authentication and authorization and that cannot be changed (at least not for up to IOS XR 5.3)
+You have to ensure you have correctly configured **aaa** as the xml agent uses **default** method for both authentication and authorization and that cannot be changed (last verified with IOS XR 5.3).
 
-You have to have both aaa authentication and authorization. If authorization is not set (**aaa authorization default local** or **none**), you may not be able to log in.
+You have to have both aaa authentication and authorization. If authorization is not set (**aaa authorization default local** or **none**), you may not be able to log in. And you shall ensure that both the authentication and authorization share the same source (tacacs+ or local).
 
 The default agent port is 38751 for the default agent and 38752 for SSL.
+
+## Debugging
+
+The module uses "debug" module to log its outputs. You can enable the debugging by having in your code something like:
+
+    require('debug').enable('ciscoxml');
+
+Or setting DEBUG environment to ciscoxml before starting the Node.JS
