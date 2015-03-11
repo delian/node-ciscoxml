@@ -288,10 +288,58 @@ Example:
     c.getConfig(function(err,config) {
         console.log(err,config);
     });
-    
 
+### cliConfig method
 
-## Configure Cisco IOS XR for Xml agent
+This method is quite simple, it executes a command(s) in CLI Configuration mode and return the response in JS Object.
+You have to know that any configuration change in IOS XR is not effective unless it is committed!
+
+Example:
+
+    c.cliConfig('username testuser\ngroup operator\n',function(err,data) {
+        console.log(err,data);
+        c.commit();
+    });
+
+### cliExec method
+
+Executes a command(s) in CLI Exec mode and return the response in JS Object.
+
+    c.cliExec('show interfaces',function(err,data) {
+        console.log(err,data?data.Response.CLI[0].Exec[0]);
+    });
+
+### commit method
+
+Commit the current configuration.
+
+Example:
+
+    c.commit(function(err,data) {
+        console.log(err,data);
+    });
+
+### lock method
+
+Locks the configuration mode.
+
+Example:
+
+    c.lock(function(err,data) {
+        console.log(err,data);
+    });
+
+### unlock method
+
+Unlocks the configuration mode.
+
+Example:
+
+    c.unlock(function(err,data) {
+        console.log(err,data);
+    });
+
+## Configure Cisco IOS XR for XML agent
 
 To configure IOS XR for remote XML configuration you have to:
 

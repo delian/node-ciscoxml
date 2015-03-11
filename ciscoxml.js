@@ -79,15 +79,15 @@ Session.prototype.onEnd = function() {
  */
 Session.prototype.connect = function(config,callback) {
     var me = this;
-    var cb = callback;
-    if (typeof config == 'object') util._extend(me.config,config);
+    var cb = function() {};
+    if (typeof callback == 'function') cb = callback;
     if (typeof config == 'function') cb = config;
+    if (typeof config == 'object') util._extend(me.config,config);
     debug('Trying to connect to %s:%s, SSL %s',me.config.host, me.config.port, me.config.ssl?'Yes':'No');
 
     if (me.config.connectErrCnt<=0) {
         debug('ERROR: We have no more right to retry!');
-        if (typeof cb == 'function') return cb(new Error('No more connect retry!'));
-        return;
+        return cb(new Error('No more connect retry!'));
     }
 
     if (me.connecting) return; // Connection is ongoing
@@ -112,7 +112,7 @@ Session.prototype.connect = function(config,callback) {
                     me.buffer = "";
                     debug('AUTH: ---- Authentication successful!');
                     me.nextRawTask(); // Lets add the next task if it is waiting
-                    if (typeof cb == 'function') cb(null,me);
+                    if (cb) cb(null,me); // Start the callback once
                     cb = null; // Avoid double call of the callback
                     return; // Successful completion
                 } else {
@@ -128,7 +128,7 @@ Session.prototype.connect = function(config,callback) {
                     }
                     if (me.buffer.match(me.config.authFailRegex)) {
                         debug('AUTH: !!!! Authentication failed!');
-                        if (typeof cb == 'function') cb(new Error('Authentication Failed'));
+                        if (cb) cb(new Error('Authentication Failed'));
                         return me.client.end(); // Fail
                     }
                 }
@@ -175,7 +175,7 @@ Session.prototype.connect = function(config,callback) {
     });
     me.client.on('error',function(err) {
         debug('ERROR: Connect error %s',err);
-        if (typeof cb == 'function') cb(err);
+        if (cb) cb(err);
         me.errorRawTask(err);
         if (me.config.connectErrCnt>0) me.config.connectErrCnt--;
         me.connecting = false;
@@ -186,11 +186,13 @@ Session.prototype.connect = function(config,callback) {
  * Disconnect from the remote site
  * @param cb
  */
-Session.prototype.disconnect = function(cb) {
+Session.prototype.disconnect = function(callback) {
+    var cb = function() {};
+    if (typeof callback == 'function') cb = callback;
     if (this.config.connectErrCnt>0) this.config.connectErrCnt++; // to avoid normal decrease of the counter
     this.client.end();
     debug('SESSION disconnected');
-    if (typeof cb == 'function') cb();
+    cb();
 };
 
 /**
@@ -240,7 +242,9 @@ Session.prototype.popNextTask = function(data) {
  * @param data
  * @param cb
  */
-Session.prototype.sendRaw = function(data,cb,priority) {
+Session.prototype.sendRaw = function(data,callback,priority) {
+    var cb = function() {};
+    if (typeof callback == 'function') cb = callback;
     debug('QUEUE: New task has been add with %s and priority %s',data,priority?'first':'last');
     if ((!(this.connected && this.authenticated))&&(!this.config.autoConnect)) {
         debug('ERROR: new task has been dispatched, but we are not yet connected!');
@@ -276,7 +280,9 @@ Session.prototype.errorRawTask = function(err) {
 
 // ------ XML ------
 
-Session.prototype.sendRawObj = function(data,cb,priority) {
+Session.prototype.sendRawObj = function(data,callback,priority) {
+    var cb = function() {};
+    if (typeof callback == 'function') cb = callback;
     if (typeof data != 'object') {
         debug('ERROR: We received request not in the right format! %s',data);
         return cb(new Error('Incorrect data'));
@@ -304,10 +310,13 @@ Session.prototype.getNext = function(id,cb) {
  * @param cb
  * @returns {*}
  */
-Session.prototype.sendRequest = function(data,cb) {
+Session.prototype.sendRequest = function(data,callback) {
+    var cb = function() {};
+    if (typeof callback == 'function') cb=callback;
     if (typeof data != 'object') {
         debug('ERROR: We received request not in the right format! %s',data);
-        return cb(new Error('Incorrect data'));
+        cb(new Error('Incorrect data'));
+        return;
     }
     var me = this;
     return me.sendRawObj(data,function(err,resp) {
@@ -331,8 +340,38 @@ Session.prototype.rootGetDataSpaceInfo = function(cb) {
     return this.sendRequest({ GetDataSpaceInfo: '' },cb);
 };
 
-Session.prototype.getConfig = function(cb) {
-    return this.sendRequest({ Get: { Configuration: {} }},cb);
+Session.prototype.getConfig = function(p1,p2) {
+    var cb = null;
+    var req = {
+        Get: {
+            Configuration: ''
+        }
+    };
+
+    if (typeof p1 == 'function') cb = p1;
+    else if (p1) req.Get.Configuration = p1;
+
+    if (typeof p2 == 'function') cb = p2;
+    else if (p2) req.Get.Configuration = p2;
+
+    return this.sendRequest(req,cb);
+};
+
+Session.prototype.getOper = function(p1,p2) {
+    var cb = null;
+    var req = {
+        Get: {
+            Operational: ''
+        }
+    };
+
+    if (typeof p1 == 'function') cb = p1;
+    else if (p1) req.Get.Operational = p1;
+
+    if (typeof p2 == 'function') cb = p2;
+    else if (p2) req.Get.Operational = p2;
+
+    return this.sendRequest(req,cb);
 };
 
 /**
@@ -386,6 +425,33 @@ Session.prototype.reqPathPath = function(path,p1,p2) {
         //debug('We will search data with filter %o',filter);
         if (cb) cb(err,me.obj2path(data,filter))
     });
+};
+
+// CLI Exec
+/**
+ * Execute string command in a CLI config mode
+ * @param cmd
+ * @param cb
+ * @returns {*}
+ */
+Session.prototype.cliConfig = function(cmd,cb) {
+    return this.sendRequest({ CLI: { Configuration: cmd }},cb);
+};
+
+Session.prototype.cliExec = function(cmd,cb) {
+    return this.sendRequest({ CLI: { Exec: cmd }},cb);
+};
+
+Session.prototype.commit = function(cb) {
+    return this.sendRequest({ Commit: {} }, cb);
+};
+
+Session.prototype.lock = function(cb) {
+    return this.sendRequest({ Lock: {} }, cb);
+};
+
+Session.prototype.unlock = function(cb) {
+    return this.sendRequest({ Unlock: {} }, cb);
 };
 
 /**
