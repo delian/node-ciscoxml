@@ -48,6 +48,41 @@ function Session(config) {
     return this;
 }
 
+
+Session.prototype.js2xml = function(obj,cb) {
+    var e;
+    try {
+        cb(null,xmlBuilder.buildObject(obj));
+    } catch(e) {
+        cb(e,null);
+    }
+};
+
+Session.prototype.xml2js = xmlParser;
+
+Session.prototype.objPretty = function(obj) {
+    function pretty(o) {
+        if (o instanceof Array) {
+            return o.forEach(pretty);
+        }
+        if (typeof o == 'object') {
+            Object.keys(o).forEach(function(n) {
+                if (o[n] instanceof Array) {
+                    if (o[n].length==1)
+                        o[n] = o[n][0];
+                    else
+                        if (o[n].length==0) o[n] = '';
+                }
+                pretty(o[n]);
+            });
+        }
+    }
+
+    pretty(obj);
+
+    return obj;
+};
+
 /**
  * This is a function that should be called when a session is terminated
  */
@@ -287,11 +322,14 @@ Session.prototype.sendRawObj = function(data,callback,priority) {
         debug('ERROR: We received request not in the right format! %s',data);
         return cb(new Error('Incorrect data'));
     }
+    var me = this;
     if (typeof data['$'] == 'undefined') data['$'] = { MajorVersion: '1', MinorVersion: '0' };
-    return this.sendRaw(xmlBuilder.buildObject(data),function (err,data) {
-        if (err) return cb(err,data);
-        xmlParser(data,cb); // Now we could inherit the error from the XML parsing
-    },priority);
+    me.js2xml(data,function(err,data) {
+        me.sendRaw(data,function (err,data) {
+            if (err) return cb(err,data);
+            me.xml2js(data,cb); // Now we could inherit the error from the XML parsing
+        },priority);
+    });
 };
 
 /**
