@@ -301,7 +301,7 @@ Enable the XML agent with a similar configuration:
 
     xml agent
       vrf default
-        ipv4 access-list MANAGEMENT
+        ipv4 access-list SECUREACCESS
       !
       ipv6 enable
       session timeout 10

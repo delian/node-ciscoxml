@@ -53,6 +53,7 @@ function Session(config) {
  */
 Session.prototype.onEnd = function() {
     debug('Session ended');
+    var me = this;
     me.connected = false;
     me.authenticated = false;
 
