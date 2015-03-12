@@ -63,7 +63,11 @@ Session.prototype.xml2js = xmlParser;
 Session.prototype.objPretty = function(obj) {
     function pretty(o) {
         if (o instanceof Array) {
-            o = o.map(function(n) { return (typeof n == 'string' && /^\d+$/.test(n))?parseInt(n):n; });
+            for (var n=0;n<o.length;n++)
+               if (typeof o[n] == 'string') {
+                   if (/^\d+$/.test(o[n])) o[n]=parseInt(o[n]);
+                   if (o[n]=='true' || o[n]=='false') o[n]=(o[n]=='true')?true:false;
+               }
             return o.forEach(pretty);
         }
         if (typeof o == 'object') {
@@ -73,8 +77,10 @@ Session.prototype.objPretty = function(obj) {
                         o[n] = o[n][0];
                     else
                         if (o[n].length==0) o[n] = '';
-                } else {
-                    if (typeof o[n] == 'string' && /^\d+$/.test(o[n])) o[n]=parseInt(o[n]);
+                }
+                if (typeof o[n] == 'string') {
+                    if (/^\d+$/.test(o[n])) o[n]=parseInt(o[n]);
+                    if (o[n]=='true' || o[n]=='false') o[n]=(o[n]=='true')?true:false;
                 }
                 pretty(o[n]);
             });
