@@ -1,6 +1,6 @@
 {
   "name": "node-ciscoxml",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": false,
   "description": "Cisco IOS XR XML API interface",
   "repository": {
