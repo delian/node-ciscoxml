@@ -189,11 +189,11 @@ Session.prototype.connect = function(config,callback) {
                 me.buffer = me.buffer.replace(/^[\s\S]*<\/Response\>/i,''); // Remove it from the buffer
                 //debug('TRIM: buffer left to be %s', me.buffer);
             }
-            if (me.buffer.match(/\<\/Notification\>/i)) {
-                debug('NOTIFICATION: <<< %s',me.buffer);
-                me.notify(me.buffer);
-                me.buffer = me.buffer.replace(/^[\s\S]*<\/Notification\>/i,'');
-            }
+//            if (me.buffer.match(/\<\/Notification\>/i)) {
+//                debug('NOTIFICATION: <<< %s',me.buffer);
+//                me.notify(me.buffer);
+//                me.buffer = me.buffer.replace(/^[\s\S]*<\/Notification\>/i,'');
+//            }
         });
     }
 
