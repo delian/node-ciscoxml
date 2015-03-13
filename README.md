@@ -319,6 +319,42 @@ Example:
         console.log(err,data);
     });
 
+It supports optional object to set the commit mode. For example:
+
+    c.commit({ Mode: "Atomic" },function(err,data) {
+        console.log(err,data);
+    });
+
+### rollback method
+
+Rollbacks the current configuration
+
+Example:
+
+    c.rollback({ CommitID: '1212121' },function(err,data) {
+        console.log(err,data);
+    });
+
+### getConfigurationSessions method
+
+Report the current configuration sessions
+
+Example:
+
+    c.getConfigurationSessions(function(err,data) {
+        console.log(err,data);
+    });
+
+### clear method
+
+Equivalent to Cisco clear command.
+
+Example:
+
+    c.clear(function(err,data) {
+        console.log(err,data);
+    });
+
 ### lock method
 
 Locks the configuration mode.

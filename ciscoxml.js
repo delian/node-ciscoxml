@@ -189,6 +189,11 @@ Session.prototype.connect = function(config,callback) {
                 me.buffer = me.buffer.replace(/^[\s\S]*<\/Response\>/i,''); // Remove it from the buffer
                 //debug('TRIM: buffer left to be %s', me.buffer);
             }
+            if (me.buffer.match(/\<\/Notification\>/i)) {
+                debug('NOTIFICATION: <<< %s',me.buffer);
+                me.notify(me.buffer);
+                me.buffer = me.buffer.replace(/^[\s\S]*<\/Notification\>/i,'');
+            }
         });
     }
 
@@ -308,6 +313,15 @@ Session.prototype.discardRawQueue = function() {
     if (this.rawQueue.length>0) debug('DISCARD %d raw tasks!',this.rawQueue.length);
     this.rawQueue = [];
     this.rawQueueBlocked = false;
+};
+
+/**
+ * Notification
+ * @param buffer
+ */
+Session.prototype.notify = function(buffer) {
+    // TODO: Implement notification system
+    debug('WARN: Notification code is not yet implemented!');
 };
 
 /**
@@ -489,12 +503,67 @@ Session.prototype.cliExec = function(cmd,cb) {
     return this.sendRequest({ CLI: { Exec: cmd }},cb);
 };
 
-Session.prototype.commit = function(cb) {
-    return this.sendRequest({ Commit: {} }, cb);
+Session.prototype.commit = function(p1,p2) {
+    var cb = null;
+    var o = { Commit: {} };
+    if (typeof p1 == 'object') o.Commit.$ = p1;
+    if (typeof p2 == 'object') o.Commit.$ = p2;
+    if (typeof p1 == 'function') cb = p1;
+    if (typeof p2 == 'function') cb = p2;
+    return this.sendRequest(o, cb);
+};
+
+Session.prototype.rollback = function(p1,p2) {
+    var cb = null;
+    var o = { Rollback: {} };
+    if (typeof p1 == 'object') o.Rollback = p1;
+    if (typeof p2 == 'object') o.Rollback = p2;
+    if (typeof p1 == 'function') cb = p1;
+    if (typeof p2 == 'function') cb = p2;
+    return this.sendRequest(o, cb);
+};
+
+Session.prototype.alarmRegister = function(p1,p2) {
+    var cb = null;
+    var o = { Alarm: { Register: {} } };
+    if (typeof p1 == 'object') o.Alarm.Register = p1;
+    if (typeof p2 == 'object') o.Alarm.Register = p2;
+    if (typeof p1 == 'function') cb = p1;
+    if (typeof p2 == 'function') cb = p2;
+    return this.sendRequest(o, cb);
+};
+
+Session.prototype.alarmDeRegister = function(p1,p2) {
+    var cb = null;
+    var o = { Alarm: { Register: {} } };
+    if (typeof p1 == 'object') o.Alarm.Deregister = p1;
+    if (typeof p2 == 'object') o.Alarm.Deregister = p2;
+    if (typeof p1 == 'function') cb = p1;
+    if (typeof p2 == 'function') cb = p2;
+    return this.sendRequest(o, cb);
+};
+
+
+Session.prototype.getConfigurationHistory = function(p1,p2) {
+    var cb = null;
+    var o = { GetConfigurationHistory: {} };
+    if (typeof p1 == 'object') o.GetConfigurationHistory.$ = p1;
+    if (typeof p2 == 'object') o.GetConfigurationHistory.$ = p2;
+    if (typeof p1 == 'function') cb = p1;
+    if (typeof p2 == 'function') cb = p2;
+    return this.sendRequest(o, cb);
+};
+
+Session.prototype.getConfigurationSessions = function(cb) {
+    return this.sendRequest({ GetConfigurationSessions: {} }, cb);
 };
 
 Session.prototype.lock = function(cb) {
     return this.sendRequest({ Lock: {} }, cb);
+};
+
+Session.prototype.clear = function(cb) {
+    return this.sendRequest({ Clear: {} }, cb);
 };
 
 Session.prototype.unlock = function(cb) {
