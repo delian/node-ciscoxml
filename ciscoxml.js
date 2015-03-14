@@ -418,6 +418,23 @@ Session.prototype.getConfig = function(p1,p2) {
     return this.sendRequest(req,cb);
 };
 
+Session.prototype.setAction = function(p1,p2) {
+    var cb = null;
+    var req = {
+        Set: {
+            Action: ''
+        }
+    };
+
+    if (typeof p1 == 'function') cb = p1;
+    else if (p1) req.Set.Action = p1;
+
+    if (typeof p2 == 'function') cb = p2;
+    else if (p2) req.Set.Action = p2;
+
+    return this.sendRequest(req,cb);
+};
+
 Session.prototype.getOper = function(p1,p2) {
     var cb = null;
     var req = {
@@ -569,6 +586,9 @@ Session.prototype.clear = function(cb) {
 Session.prototype.unlock = function(cb) {
     return this.sendRequest({ Unlock: {} }, cb);
 };
+
+// Abort is just a form of Unlock
+Session.prototype.abort = Session.prototype.unlock;
 
 /**
  * Converts obj to path and could apply a filter

@@ -367,13 +367,17 @@ Example:
 
 ### unlock method
 
-Unlocks the configuration mode.
+Unlocks, abort and exit the configuration mode.
 
 Example:
 
     c.unlock(function(err,data) {
         console.log(err,data);
     });
+
+### abort method
+
+abort method is juct linked to the unlock method in Cisco IOS XML API
 
 ## Configure Cisco IOS XR for XML agent
 
